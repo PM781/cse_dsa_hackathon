@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maze with Keys & Doors — BFS Visualizer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header> 
+    <div class="header-inner">
+      <div class="eyebrow">Algorithms Lab · Problem 01</div>
+        <h1>Maze with Keys &amp; Doors</h1>
+        <p>Find the shortest valid route with Breadth-First Search (BFS). Collect keys to unlock matching doors, then watch the solution unfold step by step.</p>
+    </div>
+  </header>
+<main>
+  <div class="layout">
+    <aside class="panel">
+      <h2>Maze controls</h2>
+      <label for="keyCount">T — number of key/door types (1–6)</label>
+      <select id="keyCount"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select>
+      <label for="size">N — grid dimension for random generation</label>
+      <input id="size" type="number" min="5" max="25" value="12">
+      <p class="hint">Input option 1: upload/paste an N × N CSV grid. Input option 2: enter T above and generate a solvable random maze.</p>
+      <div class="button-row"><button id="generate">Generate maze</button><button id="solve" class="secondary">Find shortest path</button></div>
+      <h3>Import a maze CSV</h3>
+      <input id="csvFile" type="file" accept=".csv,text/csv">
+      <p class="hint">Each CSV cell is one token. Use ., #, S, E, a–f and A–D/F. Since E is also the exit marker, write the door for key e as <b>DOOR_E</b>.</p>
+      <label for="csvText">Or paste CSV grid</label>
+      <textarea id="csvText" spellcheck="false" placeholder="S,.,#,.,.&#10;.,a,A,.,.&#10;#,#,.,.,E"></textarea>
+      <div class="button-row"><button id="loadCsv" class="secondary">Load CSV</button><button id="exportCsv" class="ghost">Export path CSV</button></div>
+      <h3>Animation</h3>
+      <div class="button-row"><button id="play">▶ Play path</button><button id="step" class="secondary">Next step</button><button id="reset" class="ghost">Reset</button></div>
+      <label for="speed">Animation speed</label>
+      <select id="speed"><option value="700">Slow</option><option value="400" selected>Normal</option><option value="180">Fast</option></select>
+      <div id="status" class="status">Loading Python runtime…</div>
+      <div class="footer-note">Runs the BFS solver in Python using Pyodide. The first load needs an internet connection to fetch the Python runtime.</div>
+    </aside>
+  <section class="workspace">
+  <div class="panel">
+    <div class="toolbar"><h2>Maze visualization</h2><span id="distanceBadge" class="key-chip">Distance: —</span></div>
+    <div class="maze-wrap" aria-label="Maze grid"><div id="maze" class="maze"></div></div>
+    <div class="legend">
+      <span class="legend-item"><i class="swatch" style="background:white"></i>Open</span>
+      <span class="legend-item"><i class="swatch" style="background:#172033"></i>Wall</span>
+      <span class="legend-item"><i class="swatch" style="background:#28a56b"></i>Start</span>
+      <span class="legend-item"><i class="swatch" style="background:#e24c54"></i>Exit</span>
+      <span class="legend-item"><i class="swatch" style="background:#93c5fd"></i>Key</span>
+      <span class="legend-item"><i class="swatch" style="background:#64748b"></i>Door</span>
+      <span class="legend-item"><i class="swatch" style="background:#bfdbfe"></i>Shortest path</span>
+    </div>
+  <div class="metrics">
+    <div class="metric"><span>Output 1 · Shortest distance</span><strong id="distance">—</strong></div>
+    <div class="metric"><span>Path cells (visual aid)</span><strong id="pathCells">—</strong></div>
+    <div class="metric"><span>Animation step</span><strong id="currentStep">0</strong></div>
+  </div>
+    <p class="hint"><b>Required output:</b> the shortest path length as one integer, or -1 if no path exists. Use “Export path CSV” for Output 2.</p>
+    <h3>Key inventory</h3><div class="inventory" id="inventory"></div>
+  </div>
+  <div class="panel explanation">
+    <h2>Algorithm &amp; correctness</h2>
+    <p><b>State:</b> <code>(row, column, key mask)</code>. Each bit records whether one of the six keys has been collected. The same cell with different keys is a different search state.</p>
+    <ul>
+      <li><b>Why BFS?</b> Every move costs exactly one step, so BFS explores states in nondecreasing distance.</li>
+      <li><b>Door rule:</b> A door is entered only when its matching key bit is set.</li>
+      <li><b>Optimality:</b> The first exit state reached by BFS has minimum distance among all legal routes. If no exit state is reached, the answer is <code>-1</code>.</li>
+      <li><b>Complexity:</b> At most <code>N² × 2ᵀ</code> states and four moves per state: <code>O(N² 2ᵀ)</code> time and space.</li>
+    </ul>
+    <p><b>Corner cases handled:</b> no path, walls, multiple routes, collecting a key before its door, revisiting cells with a different inventory, and invalid CSV dimensions. Start and exit must each appear exactly once.</p>
+  </div>
+</section>
+</div>
+</main>
+<script>
+const PYTHON_CODE = String.raw`
+from collections import deque
+import random, csv, io, json
+
+def solve_maze(grid):
+    n = len(grid)
+    if n == 0 or any(len(row) != n for row in grid):
+        raise ValueError("Grid must be a non-empty square.")
+    starts = [(r,c) for r in range(n) for c in range(n) if grid[r][c] == "S"]
+    exits = [(r,c) for r in range(n) for c in range(n) if grid[r][c] == "E"]
+    if len(starts) != 1 or len(exits) != 1:
+        raise ValueError("Grid must contain exactly one S and one E.")
+    start, end = starts[0], exits[0]
+    q = deque([(start[0], start[1], 0, 0)])
+    seen = {(start[0], start[1], 0)}
+    parent = {(start[0], start[1], 0): None}
+    final = None
+    while q:
+        r,c,mask,d = q.popleft()
+        if (r,c) == end:
+            final = (r,c,mask)
+            break
+        for dr,dc in ((1,0),(-1,0),(0,1),(0,-1)):
+            nr,nc = r+dr,c+dc
+            if not (0 <= nr < n and 0 <= nc < n): continue
+            cell = grid[nr][nc]
+            if cell == "#": continue
+            door = cell == "DOOR_E" or (len(cell)==1 and cell in "ABCDF")
+            if door:
+                key = "e" if cell == "DOOR_E" else cell.lower()
+                if not (mask & (1 << (ord(key)-ord("a")))): continue
+            nm = mask
+            if len(cell)==1 and cell in "abcdef":
+                nm |= 1 << (ord(cell)-ord("a"))
+            state = (nr,nc,nm)
+            if state not in seen:
+                seen.add(state)
+                parent[state] = (r,c,mask)
+                q.append((nr,nc,nm,d+1))
+    if final is None: return {"distance":-1,"route":[],"masks":[]}
+    states=[]
+    cur=final
+    while cur is not None:
+        states.append(cur)
+        cur=parent[cur]
+    states.reverse()
+    return {"distance":len(states)-1,"route":[[s[0],s[1]] for s in states],"masks":[s[2] for s in states]}
+
+def generate_maze(n, t, seed=7):
+    if not (5 <= n <= 25): raise ValueError("Grid size must be between 5 and 25.")
+    if not (1 <= t <= 6): raise ValueError("T must be between 1 and 6.")
+    # Guaranteed corridor goes across the top, then down the right side.
+    route=[(0,c) for c in range(n)]+[(r,n-1) for r in range(1,n)]
+    if 2*t+2 > len(route): raise ValueError("Grid too small for these key/door pairs.")
+    rng=random.Random(seed)
+    g=[["." for _ in range(n)] for _ in range(n)]
+    g[0][0]="S"; g[n-1][n-1]="E"
+    for i in range(t):
+        g[route[1+2*i][0]][route[1+2*i][1]]=chr(ord("a")+i)
+        keydoor=chr(ord("A")+i)
+        if keydoor=="E": keydoor="DOOR_E"
+        g[route[2+2*i][0]][route[2+2*i][1]]=keydoor
+    protected=set(route)
+    for r in range(n):
+        for c in range(n):
+            if (r,c) not in protected and rng.random()<0.28: g[r][c]="#"
+    return g
+
+def parse_csv(text):
+    rows=[]
+    for row in csv.reader(io.StringIO(text)):
+        if not row: continue
+        rows.append([x.strip() for x in row])
+    return rows
+`;
+
+let pyodide = null, grid = [], result = {distance:-1,route:[],masks:[]}, frame = 0, timer = null, seenSet = new Set();
+const keyColors = {a:"#bfdbfe",b:"#bbf7d0",c:"#fde68a",d:"#fbcfe8",e:"#ddd6fe",f:"#fed7aa"};
+const doorColors = {A:"#2563eb",B:"#15803d",C:"#b45309",D:"#be185d",DOOR_E:"#6d28d9",F:"#c2410c"};
+const $ = id => document.getElementById(id);
+function setStatus(text,kind=""){ $("status").textContent=text; $("status").className="status "+kind; }
+function tokenLabel(cell){
+  if(cell==="DOOR_E") return "E🔒";
+  return cell;
+}
+function cellClass(cell){
+  if(cell==="#")return "wall";
+  if(cell==="S")return "start";
+  if(cell==="E")return "exit";
+  if(cell==="." )return "open";
+  if("abcdef".includes(cell))return "key";
+  if(cell==="DOOR_E" || "ABCDF".includes(cell))return "door";
+  return "open";
+}
+function render(){
+  const host=$("maze"); host.innerHTML="";
+  if(!grid.length)return;
+  host.style.gridTemplateColumns=`repeat(${grid.length}, 39px)`;
+  const routeSet=new Map((result.route||[]).map((p,i)=>[p.join(","),i]));
+  const current=result.route?.[frame];
+  grid.forEach((row,r)=>row.forEach((cell,c)=>{
+    const el=document.createElement("div"); el.className="cell "+cellClass(cell);
+    if(cell in keyColors){el.style.background=keyColors[cell];}
+    if(cell in doorColors){el.style.background=doorColors[cell];}
+    if(cell==="DOOR_E")el.style.background=doorColors.DOOR_E;
+    const k=`${r},${c}`;
+    if(routeSet.has(k))el.classList.add("path");
+    if(current && current[0]===r && current[1]===c)el.classList.add("current");
+    if(seenSet.has(k) && !routeSet.has(k) && cell===".")el.classList.add("visited");
+    let label=tokenLabel(cell);
+    // A collected key is animated as picked up but its identity remains on the underlying maze.
+    if("abcdef".includes(cell) && current && routeSet.has(k) && routeSet.get(k)<frame) label="✓";
+    el.textContent=label;
+    if(routeSet.has(k)){const n=document.createElement("span");n.className="step";n.textContent=routeSet.get(k);el.appendChild(n);}
+    host.appendChild(el);
+  }));
+  $("distance").textContent=result.distance<0?"-1":result.distance;
+  $("distanceBadge").textContent="Distance: "+(result.distance<0?"-1":result.distance);
+  $("pathCells").textContent=result.route.length||"—";
+  $("currentStep").textContent=result.route.length?frame:"0";
+  updateInventory();
+  $("play").textContent=timer?"Ⅱ Pause":"▶ Play path";
+  $("step").disabled=!result.route.length;
+  $("exportCsv").disabled=!grid.length;
+}
+function updateInventory(){
+  const inv=$("inventory");inv.innerHTML="";
+  const mask=(result.masks && result.masks[frame])||0;
+  for(let i=0;i<6;i++){
+    const ch=String.fromCharCode(97+i), el=document.createElement("span");
+    el.className="key-chip "+((mask&(1<<i))?"held":"");
+    el.textContent=((mask&(1<<i))?"✓ ":"")+ch;
+    inv.appendChild(el);
+  }
+}
+function stopAnimation(){if(timer){clearInterval(timer);timer=null;}}
+function runSolve(){
+  if(!pyodide){setStatus("Python runtime is still loading. Please wait a moment.");return;}
+  try{
+    // Convert the Python result through JSON so it becomes a plain JavaScript object.
+    result=JSON.parse(pyodide.runPython(`__import__('json').dumps(solve_maze(${JSON.stringify(grid)}))`));
+    frame=0;seenSet=new Set();
+    result.route.forEach(p=>seenSet.add(p.join(",")));
+    stopAnimation();render();
+    if(result.distance<0)setStatus("Output 1: -1","error");
+    else setStatus(`Output 1: ${result.distance}`,"success");
+  }catch(e){setStatus(e.message||String(e),"error");}
+}
+function generate(){
+  if(!pyodide){setStatus("Python runtime is still loading.");return;}
+  try{
+    const n=Number($("size").value),t=Number($("keyCount").value);
+    grid=JSON.parse(pyodide.runPython(`__import__('json').dumps(generate_maze(${n},${t},${Math.floor(Math.random()*100000)}))`));
+    $("csvText").value=grid.map(r=>r.join(",")).join("\n");
+    result={distance:-1,route:[],masks:[]};frame=0;seenSet=new Set();stopAnimation();render();runSolve();
+  }catch(e){setStatus(e.message||String(e),"error");}
+}
+function loadCSV(text){
+  if(!pyodide){setStatus("Python runtime is still loading.");return;}
+  try{
+    grid=JSON.parse(pyodide.runPython(`__import__('json').dumps(parse_csv(${JSON.stringify(text)}))`));
+    runSolve();
+  }catch(e){setStatus(e.message||String(e),"error");}
+}
+function advance(){
+  if(!result.route.length)return;
+  frame=Math.min(frame+1,result.route.length-1);render();
+  if(frame===result.route.length-1){stopAnimation();setStatus("Animation complete. The route is a shortest path.","success");}
+}
+function exportPath(){
+  if(!grid.length)return;
+  const marked=grid.map(r=>r.slice());
+  (result.route||[]).forEach(([r,c])=>{if(!["S","E","DOOR_E"].includes(marked[r][c])&&! "abcdef".includes(marked[r][c])&&! "ABCDF".includes(marked[r][c]))marked[r][c]="x";});
+  const csv=marked.map(r=>r.map(v=>/[,\n"]/.test(v)?'"'+v.replaceAll('"','""')+'"':v).join(",")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="maze_path.csv";a.click();URL.revokeObjectURL(a.href);
+}
+$("generate").addEventListener("click",generate);
+$("solve").addEventListener("click",runSolve);
+$("loadCsv").addEventListener("click",()=>loadCSV($("csvText").value));
+$("csvFile").addEventListener("change",async e=>{const f=e.target.files[0];if(f) {$("csvText").value=await f.text();loadCSV($("csvText").value);}});
+$("exportCsv").addEventListener("click",exportPath);
+$("step").addEventListener("click",()=>{stopAnimation();advance();});
+$("reset").addEventListener("click",()=>{stopAnimation();frame=0;render();setStatus("Animation reset.");});
+$("play").addEventListener("click",()=>{
+  if(timer){stopAnimation();render();return;}
+  if(!result.route.length){runSolve();if(!result.route.length)return;}
+  if(frame>=result.route.length-1)frame=0;
+  timer=setInterval(advance,Number($("speed").value));render();
+});
+(async()=>{
+  try{
+    const module=await import("https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.mjs");
+    pyodide=await module.loadPyodide();
+    pyodide.runPython(PYTHON_CODE);
+    setStatus("Python runtime ready. Generate a maze or load your own CSV.","success");
+    generate();
+  }catch(e){setStatus("Could not load Python runtime. Check your internet connection and refresh. Details: "+e.message,"error");}
+})();
+</script>
+</body>
+</html>

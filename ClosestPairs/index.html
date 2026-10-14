@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Closest Pair of Points</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <p class="eyebrow">Algorithms Lab · Problem 02</p>
+        <h1>Closest Pair of Points</h1>
+        <p>Compare Brute-Force and Divide-and-Conquer on randomly generated points.</p>
+    </header>
+
+    <main>
+        <aside class="panel controls">
+            <h2>Input</h2>
+            <label for="pointCount">N — number of points</label>
+            <input id="pointCount" type="number" min="0" max="5000" value="100">
+            <label for="seed">Random seed <span>(optional)</span></label>
+            <input id="seed" type="number" placeholder="Leave blank for random points">
+            <label class="checkbox-label"><input id="benchmark" type="checkbox" checked> Run runtime comparison</label>
+            <button id="runButton">Generate points &amp; compare</button>
+            <div id="status" class="status">Ready. Choose N and run the comparison.</div>
+            <div class="notes">
+                <h3>Algorithms</h3>
+                <p><b>Brute-Force:</b> checks every pair. <code>O(N²)</code>.</p>
+                <p><b>Divide-and-Conquer:</b> recursively splits points and checks the middle strip. <code>O(N log N)</code>.</p>
+            </div>
+        </aside>
+
+        <section class="results">
+            <section class="panel">
+                <div class="section-title">
+                    <h2>Output</h2>
+                    <span id="agreement" class="pill">Not run</span>
+                </div>
+                <pre id="output">Brute-Force: —
+                                Divide-and-Conquer: —
+                                Execution time: —</pre>
+                <p class="hint">Distances are shown to six decimal places. For N &lt; 2, no pair exists and the distance is undefined.</p>
+            </section>
+
+            <section class="panel">
+                <div class="section-title">
+                    <h2>Point visualization</h2>
+                    <div class="legend">
+                        <span><i class="dot normal"></i> Points</span>
+                        <span><i class="dot brute"></i> Brute-force pair</span>
+                        <span><i class="dot divide"></i> Divide-and-conquer pair</span>
+                    </div>
+                </div>
+                <canvas id="pointCanvas" width="900" height="480"></canvas>
+                <p class="hint">The dashed line marks the top-level division. The shaded strip has total width 2d, where d is the minimum distance.</p>
+            </section>
+
+            <section class="panel">
+                <h2>Running time vs N</h2>
+                <canvas id="timingCanvas" width="900" height="340"></canvas>
+            </section>
+
+            <section class="panel">
+                <h2>Correctness and corner cases</h2>
+                <details open>
+                    <summary>algorithms</summary>
+                    <p>Brute-Force examines every unordered pair. Divide-and-Conquer considers the closest pair in the left half, the right half, or across the dividing line; the strip check handles cross-boundary pairs. Both are run on the same point set and their distances are compared.</p>
+                </details>
+                <details>
+                    <summary>Corner cases</summary>
+                    <ul>
+                        <li>N &lt; 2: no pair exists.</li>
+                        <li>N = 2: only one pair exists.</li>
+                        <li>Duplicate points: minimum distance is zero.</li>
+                        <li>Collinear points and equal x/y coordinates are supported.</li>
+                        <li>Different pairs may be returned when multiple pairs tie for the same minimum distance.</li>
+                    </ul>
+                </details>
+                <details>
+                    <summary>Complexity comparison</summary>
+                    <p>Brute-Force: O(N²) time and O(1) auxiliary space. Divide-and-Conquer: O(N log N) time and O(N) auxiliary space. For small N, sorting overhead may affect measured performance.</p>
+                </details>
+            </section>
+        </section>
+    </main>
+
+    <!-- JavaScript is embedded so the folder only needs HTML and CSS files. -->
+    <script>
+
+    
+    const PYTHON_CODE = String.raw`
+import json, math, random, time, statistics
+
+def squared_distance(a, b):
+    return (a["x"] - b["x"])**2 + (a["y"] - b["y"])**2
+
+def brute_force(points):
+    if len(points) < 2:
+        return {"distance": None, "pair": None}
+    best_sq = float("inf")
+    best_pair = None
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            d = squared_distance(points[i], points[j])
+            if d < best_sq:
+                best_sq, best_pair = d, [points[i], points[j]]
+    return {"distance": math.sqrt(best_sq), "pair": [[best_pair[0]["x"], best_pair[0]["y"]],
+                                                       [best_pair[1]["x"], best_pair[1]["y"]]]}
+
+def divide_and_conquer(points):
+    if len(points) < 2:
+        return {"distance": None, "pair": None}
+    px = sorted(points, key=lambda p: (p["x"], p["y"], p["id"]))
+    for a, b in zip(px, px[1:]):
+        if a["x"] == b["x"] and a["y"] == b["y"]:
+            return {"distance": 0.0, "pair": [[a["x"], a["y"]], [b["x"], b["y"]]]}
+    py = sorted(points, key=lambda p: (p["y"], p["x"], p["id"]))
+
+    def recurse(xs, ys):
+        if len(xs) <= 3:
+            # Small base cases use brute force.
+            subset = [{"x":p["x"], "y":p["y"], "id":p["id"]} for p in xs]
+            result = brute_force(subset)
+            return result["distance"], result["pair"]
+        mid = len(xs) // 2
+        split_x = xs[mid]["x"]
+        left_x, right_x = xs[:mid], xs[mid:]
+        left_ids = {p["id"] for p in left_x}
+        left_y = [p for p in ys if p["id"] in left_ids]
+        right_y = [p for p in ys if p["id"] not in left_ids]
+        dl, pl = recurse(left_x, left_y)
+        dr, pr = recurse(right_x, right_y)
+        if dl <= dr:
+            best, pair = dl, pl
+        else:
+            best, pair = dr, pr
+        best_sq = best * best
+        strip = [p for p in ys if (p["x"] - split_x)**2 <= best_sq]
+        for i, point in enumerate(strip):
+            for other in strip[i+1:i+8]:
+                if (other["y"] - point["y"])**2 > best_sq:
+                    break
+                d = squared_distance(point, other)
+                if d < best_sq:
+                    best_sq, pair = d, [[point["x"], point["y"]], [other["x"], other["y"]]]
+        return math.sqrt(best_sq), pair
+
+    distance, pair = recurse(px, py)
+    return {"distance": distance, "pair": pair}
+
+def timed(fn, points):
+    start = time.perf_counter()
+    result = fn(points)
+    return result, (time.perf_counter() - start) * 1000
+
+def solve(n, seed, do_benchmark):
+    rng = random.Random(seed)
+    points = [{"x": rng.randint(-100, 100), "y": rng.randint(-100, 100), "id": i} for i in range(n)]
+    brute, brute_ms = timed(brute_force, points)
+    divide, divide_ms = timed(divide_and_conquer, points)
+    agree = brute["distance"] is None or math.isclose(brute["distance"], divide["distance"], rel_tol=1e-9, abs_tol=1e-9)
+    split_x = sorted(points, key=lambda p: (p["x"], p["y"], p["id"]))[n//2]["x"] if n >= 4 else None
+    benchmark = []
+    if do_benchmark:
+        for size in (20, 50, 100, 200, 400, 700):
+            test_points = [{"x": random.Random(1000+size+i).randint(-100,100),
+                            "y": random.Random(2000+size+i).randint(-100,100), "id": i}
+                           for i in range(size)]
+            bt, dt = [], []
+            for _ in range(3):
+                _, t1 = timed(brute_force, test_points)
+                _, t2 = timed(divide_and_conquer, test_points)
+                bt.append(t1); dt.append(t2)
+            rb, rd = brute_force(test_points), divide_and_conquer(test_points)
+            if rb["distance"] is not None and not math.isclose(rb["distance"], rd["distance"], rel_tol=1e-9, abs_tol=1e-9):
+                raise RuntimeError("Algorithms disagree during benchmark.")
+            benchmark.append({"n": size, "brute": statistics.median(bt), "divide": statistics.median(dt)})
+    return json.dumps({"points": points, "brute": brute, "divide": divide,
+                       "brute_ms": brute_ms, "divide_ms": divide_ms, "agree": agree,
+                       "splitX": split_x, "benchmark": benchmark})
+
+`;
+    let pyodide = null;
+    async function initPython() {
+        $("status").textContent = "Loading Python runtime… an internet connection is needed on first load.";
+        $("runButton").disabled = true;
+        try {
+            const module = await import("https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.mjs");
+            pyodide = await module.loadPyodide();
+            await pyodide.runPythonAsync(PYTHON_CODE);
+            $("status").textContent = "Python is ready. Choose N and run the comparison.";
+            $("runButton").disabled = false;
+            $("runButton").click();
+        } catch (error) {
+            $("status").textContent = "Could not load Python. Check your internet connection and refresh.";
+            $("status").className = "status error";
+        }
+    }
+
+    const $ = id => document.getElementById(id);
+    const pointCanvas = $("pointCanvas");
+    const timingCanvas = $("timingCanvas");
+
+    function generatePoints(n, seed) {
+        let state = seed === null ? Math.floor(Math.random() * 2147483647) : seed;
+        function rand() {
+            state = (state * 16807) % 2147483647;
+            return (state - 1) / 2147483646;
+        }
+        return Array.from({length:n}, (_,id) => ({
+            x: Math.floor(rand()*201)-100,
+            y: Math.floor(rand()*201)-100,
+            id
+        }));
+    }
+
+    const d2 = (a,b) => (a.x-b.x)**2 + (a.y-b.y)**2;
+    function bruteForce(points) {
+        if (points.length < 2) return {distance:null,pair:null};
+        let best=Infinity, pair=null;
+        for(let i=0;i<points.length;i++) {
+            for(let j=i+1;j<points.length;j++) {
+                const d=d2(points[i],points[j]);
+                if(d<best){best=d;pair=[points[i],points[j]];}
+            }
+        }
+        return {distance:Math.sqrt(best),pair};
+    }
+
+    function divideAndConquer(points) {
+        if(points.length<2) return {distance:null,pair:null};
+        const px=[...points].sort((a,b)=>a.x-b.x||a.y-b.y||a.id-b.id);
+        // Duplicate coordinates force an immediate exact zero answer.
+        for(let i=1;i<px.length;i++) {
+            if(px[i].x===px[i-1].x && px[i].y===px[i-1].y)
+                return {distance:0,pair:[px[i-1],px[i]]};
+        }
+        const py=[...points].sort((a,b)=>a.y-b.y||a.x-b.x||a.id-b.id);
+        function rec(xs,ys) {
+            if(xs.length<=3) return bruteForce(xs);
+            const mid=Math.floor(xs.length/2), splitX=xs[mid].x;
+            const left=xs.slice(0,mid), right=xs.slice(mid);
+            const leftIds=new Set(left.map(p=>p.id));
+            const ly=ys.filter(p=>leftIds.has(p.id));
+            const ry=ys.filter(p=>!leftIds.has(p.id));
+            const a=rec(left,ly), b=rec(right,ry);
+            let best=a.distance<=b.distance?a:b;
+            let bestSq=best.distance*best.distance, pair=best.pair;
+            const strip=ys.filter(p=>(p.x-splitX)**2<=bestSq);
+            for(let i=0;i<strip.length;i++) {
+                for(let j=i+1;j<Math.min(i+8,strip.length);j++) {
+                    if((strip[j].y-strip[i].y)**2>bestSq) break;
+                    const d=d2(strip[i],strip[j]);
+                    if(d<bestSq){bestSq=d;pair=[strip[i],strip[j]];}
+                }
+            }
+            return {distance:Math.sqrt(bestSq),pair};
+        }
+        return rec(px,py);
+    }
+
+    function formatResult(name,result) {
+        if(!result.pair) return `${name}: undefined | no pair exists`;
+        const fmt=p=>`(${p.x}, ${p.y})`;
+        return `${name}: ${result.distance.toFixed(6)} | ${fmt(result.pair[0])} | ${fmt(result.pair[1])}`;
+    }
+
+    function timed(fn,points) {
+        const start=performance.now(), result=fn(points);
+        return {result,ms:performance.now()-start};
+    }
+
+    function drawPair(ctx, pair, color, x, y, offset = 0) {
+        if (!pair) return;
+        let x1=x(pair[0][0]), y1=y(pair[0][1]), x2=x(pair[1][0]), y2=y(pair[1][1]);
+        const dx=x2-x1, dy=y2-y1, length=Math.hypot(dx,dy) || 1;
+        const ox=(-dy/length)*offset, oy=(dx/length)*offset;
+        x1+=ox; y1+=oy; x2+=ox; y2+=oy;
+        ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=3;
+        ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+        [[x1,y1],[x2,y2]].forEach(([px,py]) => {
+            ctx.beginPath(); ctx.arc(px,py,5,0,Math.PI*2); ctx.fill();
+        });
+    }
+
+    function drawPoints(data) {
+        const canvas=pointCanvas,ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
+        ctx.clearRect(0,0,w,h);ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);
+        const pts=data.points;
+        if(!pts.length){ctx.fillStyle="#64748b";ctx.font="16px Arial";ctx.fillText("No points to display (N = 0).",28,42);return;}
+        let minX=Math.min(...pts.map(p=>p.x)),maxX=Math.max(...pts.map(p=>p.x));
+        let minY=Math.min(...pts.map(p=>p.y)),maxY=Math.max(...pts.map(p=>p.y));
+        if(minX===maxX){minX--;maxX++;} if(minY===maxY){minY--;maxY++;}
+        const padX=(maxX-minX)*.08,padY=(maxY-minY)*.08;minX-=padX;maxX+=padX;minY-=padY;maxY+=padY;
+        const m={l:48,r:22,t:22,b:38},pw=w-m.l-m.r,ph=h-m.t-m.b;
+        const x=v=>m.l+(v-minX)/(maxX-minX)*pw, y=v=>m.t+ph-(v-minY)/(maxY-minY)*ph;
+        ctx.strokeStyle="#e2e8f0";
+        for(let i=0;i<=5;i++){const gx=m.l+pw*i/5,gy=m.t+ph*i/5;ctx.beginPath();ctx.moveTo(gx,m.t);ctx.lineTo(gx,m.t+ph);ctx.stroke();ctx.beginPath();ctx.moveTo(m.l,gy);ctx.lineTo(m.l+pw,gy);ctx.stroke();}
+        if(data.splitX!==null && data.divide.distance!==null) {
+            const half=data.divide.distance,left=x(data.splitX-half),right=x(data.splitX+half);
+            ctx.fillStyle="rgba(49,87,213,.10)";ctx.fillRect(left,m.t,Math.max(1,right-left),ph);
+            ctx.strokeStyle="#64748b";ctx.setLineDash([6,5]);ctx.beginPath();ctx.moveTo(x(data.splitX),m.t);ctx.lineTo(x(data.splitX),m.t+ph);ctx.stroke();ctx.setLineDash([]);
+        }
+        pts.forEach(p=>{ctx.fillStyle="#64748b";ctx.beginPath();ctx.arc(x(p.x),y(p.y),3,0,Math.PI*2);ctx.fill();});
+        const samePair = data.brute.pair && data.divide.pair &&
+            JSON.stringify(data.brute.pair.map(p=>p.join("," )).sort()) ===
+            JSON.stringify(data.divide.pair.map(p=>p.join("," )).sort());
+        if (samePair) {
+            drawPair(ctx, data.brute.pair, "#d9485f", x, y, -3);
+            drawPair(ctx, data.divide.pair, "#3157d5", x, y, 3);
+        } else {
+            drawPair(ctx, data.brute.pair, "#d9485f", x, y);
+            drawPair(ctx, data.divide.pair, "#3157d5", x, y);
+        }
+        ctx.fillStyle="#64748b";ctx.font="12px Arial";ctx.fillText("x",w-18,h-10);ctx.fillText("y",14,15);
+    }
+
+    function drawTiming(rows) {
+        const c=timingCanvas,ctx=c.getContext("2d"),w=c.width,h=c.height;
+        ctx.clearRect(0,0,w,h);ctx.fillStyle="#fff";ctx.fillRect(0,0,w,h);
+        if(!rows.length){ctx.fillStyle="#64748b";ctx.font="15px Arial";ctx.fillText("Enable runtime comparison to see the chart.",25,42);return;}
+        const m={l:62,r:22,t:28,b:45},pw=w-m.l-m.r,ph=h-m.t-m.b;
+        const maxN=Math.max(...rows.map(r=>r.n)),maxT=Math.max(.01,...rows.flatMap(r=>[r.brute,r.divide]))*1.12;
+        const x=n=>m.l+n/maxN*pw,y=t=>m.t+ph-t/maxT*ph;
+        ctx.font="12px Arial";ctx.fillStyle="#64748b";ctx.strokeStyle="#e2e8f0";
+        for(let i=0;i<=5;i++){const yy=m.t+ph*i/5;ctx.beginPath();ctx.moveTo(m.l,yy);ctx.lineTo(m.l+pw,yy);ctx.stroke();ctx.fillText((maxT*(5-i)/5).toFixed(2),8,yy+4);}
+        function line(key,color){ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2.5;ctx.beginPath();rows.forEach((r,i)=>{if(i===0)ctx.moveTo(x(r.n),y(r[key]));else ctx.lineTo(x(r.n),y(r[key]));});ctx.stroke();rows.forEach(r=>{ctx.beginPath();ctx.arc(x(r.n),y(r[key]),4,0,Math.PI*2);ctx.fill();});}
+        line("brute","#d9485f");line("divide","#3157d5");
+        ctx.fillStyle="#d9485f";ctx.fillRect(w-220,10,12,4);ctx.fillStyle="#475569";ctx.fillText("Brute-Force",w-202,16);
+        ctx.fillStyle="#3157d5";ctx.fillRect(w-118,10,12,4);ctx.fillStyle="#475569";ctx.fillText("Divide & Conquer",w-100,16);
+        ctx.fillText("N points",w/2-20,h-12);
+    }
+
+    $("runButton").addEventListener("click", async () => {
+        const n = Number($("pointCount").value), seedText = $("seed").value;
+        if (!Number.isInteger(n) || n < 0 || n > 5000) {
+            $("status").textContent = "N must be an integer between 0 and 5000.";
+            $("status").className = "status error";
+            return;
+        }
+        if (!pyodide) {
+            $("status").textContent = "Python is still loading. Please wait.";
+            return;
+        }
+        $("runButton").disabled = true;
+        $("status").textContent = "Running the Python algorithms…";
+        try {
+            const seed = seedText.trim() === "" ? Math.floor(Math.random()*2147483646)+1 : Number(seedText);
+            if (!Number.isFinite(seed)) throw new Error("Random seed must be a number.");
+            const doBenchmark = $("benchmark").checked;
+            const raw = await pyodide.runPythonAsync(`solve(${n}, ${Math.trunc(seed)}, ${doBenchmark ? "True" : "False"})`);
+            const data = JSON.parse(raw);
+            const format = (name, result) => {
+                if (!result.pair) return `${name}: undefined | no pair exists`;
+                return `${name}: ${result.distance.toFixed(6)} | (${result.pair[0][0]}, ${result.pair[0][1]}) | (${result.pair[1][0]}, ${result.pair[1][1]})`;
+            };
+            $("output").textContent =
+                `${format("Brute-Force", data.brute)}\n${format("Divide-and-Conquer", data.divide)}\nExecution time: Brute-Force = ${data.brute_ms.toFixed(3)} ms, Divide-and-Conquer = ${data.divide_ms.toFixed(3)} ms`;
+            $("agreement").textContent = data.agree ? "Distances agree" : "Mismatch";
+            $("agreement").className = "pill " + (data.agree ? "good" : "bad");
+            drawPoints(data);
+            drawTiming(data.benchmark);
+            $("status").textContent = data.agree ? "Done. Both Python algorithms agree on the minimum distance." : "Warning: algorithms disagree.";
+            $("status").className = "status " + (data.agree ? "success" : "error");
+        } catch (error) {
+            $("status").textContent = error.message || String(error);
+            $("status").className = "status error";
+        } finally {
+            $("runButton").disabled = false;
+        }
+    });
+    initPython();
+    </script>
+</body>
+</html>

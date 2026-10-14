@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Budget Traveller with Coupons</title><link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header><div class="header-inner"><p class="eyebrow">Algorithms Lab · Problem 03</p><h1>Budget Traveller with Coupons</h1><p>Find the cheapest route with a stop limit and half-price flight coupons.</p></div></header>
+<main>
+<aside class="panel controls">
+<h2>Input</h2>
+<div class="form-grid">
+<div><label for="n">N — cities</label><input id="n" type="number" min="1" value="8"></div>
+<div><label for="m">M — flights</label><input id="m" type="number" readonly value="10"></div>
+<div><label for="k">K — max stops</label><input id="k" type="number" min="0" value="3"></div>
+<div><label for="c">C — coupons</label><input id="c" type="number" min="0" value="2"></div>
+</div>
+<h3>Option 1 · Enter flights</h3><p class="help">One flight per line: <code>u v price</code>.</p>
+<textarea id="edgeInput" rows="9" spellcheck="false">1 2 120
+1 3 80
+2 4 70
+3 4 100
+3 5 140
+4 6 60
+5 6 40
+6 7 90
+7 8 100
+4 8 260</textarea>
+<div class="button-row"><button id="solveButton">Find minimum cost</button><button id="generateButton" class="secondary">Generate graph</button></div>
+<h3>Option 2 · Read graph CSV</h3><p class="help">CSV columns: <code>u,v,price</code>.</p><input id="csvFile" type="file" accept=".csv,text/csv"><button id="loadCsvButton" class="secondary full">Load flight CSV</button>
+<div id="status" class="status">Ready.</div>
+</aside>
+<section class="main-column">
+<section class="panel"><div class="section-heading"><h2>Output</h2><span id="costBadge" class="pill">Cost: —</span></div>
+<div class="metrics"><div class="metric"><span>Minimum cost</span><strong id="cost">—</strong></div><div class="metric"><span>Flights used</span><strong id="flightCount">—</strong></div><div class="metric"><span>Stops used</span><strong id="stops">—</strong></div><div class="metric"><span>Coupons used</span><strong id="coupons">—</strong></div></div>
+<p id="route">Route: —</p><p class="help">Output 1: minimum total cost, or -1 if no valid route exists.</p><button id="exportButton" class="secondary" disabled>Export graph path CSV</button></section>
+<section class="panel"><div class="section-heading"><h2>Flight graph</h2><div class="legend"><span><i class="dot green"></i>Start</span><span><i class="dot red"></i>Destination</span><span><i class="dot orange"></i>Intermediate</span><span><i class="dot blue"></i>Route</span><span><i class="dot gold"></i>Coupon flight</span></div></div>
+<canvas id="graph" width="1000" height="560"></canvas><div class="button-row"><button id="play" class="secondary" disabled>▶ Animate journey</button><button id="step" class="secondary" disabled>Next flight</button><button id="reset" class="secondary" disabled>Reset</button></div>
+<div class="journey"><b id="journeyTitle">Journey animation</b><span id="runningCost">Running cost: 0</span><span id="runningStops">Stops used: 0</span></div></section>
+<section class="panel analysis"><h2>Algorithm and correctness</h2><p><b>State:</b> <code>dp[f][city][usedCoupons]</code> stores minimum cost to reach a city using exactly f flights and that many coupons.</p><ul><li>At most K stops means at most K+1 flights.</li><li>Each flight transition considers full price or <code>floor(price/2)</code> with one coupon.</li><li>The minimum over all allowed destination states is optimal because every valid route and coupon choice is represented.</li><li>Time: <code>O((K+1)M(C+1))</code>; space: <code>O((K+1)N(C+1))</code>.</li></ul><details><summary>Corner cases</summary><ul><li>Unreachable destination → -1.</li><li>N=1 → cost 0.</li><li>Odd prices, zero prices, unused coupons, parallel flights and cycles.</li><li>Negative prices are rejected.</li></ul></details></section>
+</section></main><script>
+const $=id=>document.getElementById(id);
+let dataNow=null, stepNow=0, timer=null;
+function status(msg,type=""){ $("status").textContent=msg;$("status").className="status "+type; }
+function readEdges(){
+ const rows=$("edgeInput").value.split(/\r?\n/).filter(x=>x.trim()), edges=[];
+ rows.forEach((line,i)=>{const a=line.trim().includes(",")?line.split(","):line.trim().split(/\s+/);if(a.length<3)throw Error(`Line ${i+1}: enter u v price.`);const [u,v,price]=a.slice(0,3).map(Number);if(![u,v,price].every(Number.isInteger))throw Error(`Line ${i+1}: values must be integers.`);edges.push({u,v,price});});
+ $("m").value=edges.length;return edges;
+}
+async function post(url,body){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(d.error||"Request failed.");return d;}
+async function solve(){
+ stopTimer();
+ try{
+  const n=Number($("n").value),k=Number($("k").value),c=Number($("c").value),edges=readEdges();
+  if(![n,k,c].every(Number.isInteger)||n<1||k<0||c<0)throw Error("N must be ≥1; K and C must be non-negative integers.");
+  status("Running Python shortest-path algorithm…");
+  dataNow=await post("/api/solve",{n,k,c,edges});stepNow=0;renderResult();drawGraph(0);
+  ["play","step","reset"].forEach(id=>$(id).disabled=!dataNow.flights.length);
+  status(dataNow.cost<0?"Output 1: -1 — no valid route within K stops.":`Output 1: ${dataNow.cost}`,dataNow.cost<0?"error":"success");
+ }catch(e){status(e.message,"error");}
+}
+function renderResult(){
+ const d=dataNow;
+ $("cost").textContent=d.cost;$("costBadge").textContent=`Cost: ${d.cost}`;
+ $("flightCount").textContent=d.cost<0?"—":d.flights.length;$("stops").textContent=d.cost<0?"—":d.stops;
+ $("coupons").textContent=d.cost<0?"—":`${d.coupons_used} / ${d.c}`;
+ $("route").textContent=d.cost<0?"Route: no valid route":`Route: ${d.route.join(" → ")||"1 (already at destination)"}`;
+ $("exportButton").disabled=!d.edges.length;
+}
+function points(n,w,h){const a=[];for(let i=1;i<=n;i++){const t=-Math.PI/2+2*Math.PI*(i-1)/n;a.push({city:i,x:w/2+w*.38*Math.cos(t),y:h/2+h*.38*Math.sin(t)});}return a;}
+function arrow(ctx,a,b,color,label,bend=0,width=1.5){
+ const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len,r=21,sx=a.x+ux*r,sy=a.y+uy*r,ex=b.x-ux*r,ey=b.y-uy*r,mx=(sx+ex)/2-uy*bend,my=(sy+ey)/2+ux*bend;
+ ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(sx,sy);if(bend)ctx.quadraticCurveTo(mx,my,ex,ey);else ctx.lineTo(ex,ey);ctx.stroke();
+ const angle=Math.atan2(ey-my,ex-mx);ctx.beginPath();ctx.moveTo(ex,ey);ctx.lineTo(ex-9*Math.cos(angle-.5),ey-9*Math.sin(angle-.5));ctx.lineTo(ex-9*Math.cos(angle+.5),ey-9*Math.sin(angle+.5));ctx.closePath();ctx.fill();
+ const lx=bend?(sx+2*mx+ex)/4:(sx+ex)/2,ly=bend?(sy+2*my+ey)/4:(sy+ey)/2;ctx.font="12px Arial";ctx.textAlign="center";ctx.textBaseline="middle";const bw=ctx.measureText(label).width+8;ctx.fillStyle="#ffffffed";ctx.fillRect(lx-bw/2,ly-10,bw,20);ctx.fillStyle=color;ctx.fillText(label,lx,ly);
+}
+function drawGraph(visible=0){
+ if(!dataNow)return;const can=$("graph"),ctx=can.getContext("2d"),w=can.width,h=can.height;ctx.clearRect(0,0,w,h);ctx.fillStyle="white";ctx.fillRect(0,0,w,h);
+ const ps=points(dataNow.n,w,h),by=new Map(ps.map(p=>[p.city,p])),route=new Map(dataNow.flights.map((f,i)=>[f.edge_index,{...f,order:i+1}])),pathCities=new Set(dataNow.route),seen={};
+ dataNow.edges.forEach(e=>{const f=route.get(e.index),key=`${e.u},${e.v}`,op=`${e.v},${e.u}`;let bend=seen[op]?-13:0;seen[key]=true;let col="#cbd5e1",wid=1.3,label=String(e.price);
+ if(f){col=f.order<=visible?(f.coupon?"#d6a400":"#3157d5"):(f.coupon?"#c49a00":"#8393df");wid=f.order<=visible?3.6:2.3;label=f.coupon?`${e.price}→${f.discounted_price}`:String(e.price);}
+ arrow(ctx,by.get(e.u),by.get(e.v),col,label,bend,wid);
+ });
+ ps.forEach(p=>{let col=p.city===1?"#168653":p.city===dataNow.n?"#d9485f":pathCities.has(p.city)?"#d97706":"#94a3b8";ctx.beginPath();ctx.arc(p.x,p.y,18,0,Math.PI*2);ctx.fillStyle=col;ctx.fill();ctx.strokeStyle="white";ctx.lineWidth=2;ctx.stroke();ctx.fillStyle="white";ctx.font="bold 13px Arial";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(p.city,p.x,p.y);});
+ if(visible>0&&dataNow.flights.length){const f=dataNow.flights[visible-1],cost=dataNow.flights.slice(0,visible).reduce((a,x)=>a+x.discounted_price,0);$("journeyTitle").textContent=`Flight ${visible}/${dataNow.flights.length}: ${f.u} → ${f.v}${f.coupon?" · coupon applied":""}`;$("runningCost").textContent=`Running cost: ${cost}`;$("runningStops").textContent=`Stops used: ${Math.max(0,visible-1)}`;}
+ else{$("journeyTitle").textContent="Ready to begin journey";$("runningCost").textContent="Running cost: 0";$("runningStops").textContent="Stops used: 0";}
+}
+function stopTimer(){if(timer){clearInterval(timer);timer=null;}$("play").textContent="▶ Animate journey";}
+function advance(){if(!dataNow||!dataNow.flights.length)return;stepNow=Math.min(stepNow+1,dataNow.flights.length);drawGraph(stepNow);if(stepNow>=dataNow.flights.length){stopTimer();$("journeyTitle").textContent="Journey complete";$("runningCost").textContent=`Final cost: ${dataNow.cost}`;$("runningStops").textContent=`Stops used: ${dataNow.stops}`;}}
+$("solveButton").addEventListener("click",solve);
+$("generateButton").addEventListener("click",async()=>{try{const n=Number($("n").value),k=Number($("k").value),c=Number($("c").value);status("Generating a solvable directed graph…");const d=await post("/api/generate",{n,k,c,seed:Math.floor(Math.random()*100000)});$("edgeInput").value=d.edges.map(e=>`${e.u} ${e.v} ${e.price}`).join("\n");$("m").value=d.edges.length;await solve();}catch(e){status(e.message,"error");}});
+$("csvFile").addEventListener("change",async ev=>{const file=ev.target.files[0];if(!file)return;try{const d=await post("/api/parse-csv",{csv:await file.text()});$("edgeInput").value=d.edges.map(e=>`${e.u} ${e.v} ${e.price}`).join("\n");$("m").value=d.edges.length;status(`Loaded ${d.edges.length} flights. Set N, K and C, then solve.`,"success");}catch(e){status(e.message,"error");}});
+$("loadCsvButton").addEventListener("click",()=>{if(!$("csvFile").files.length)status("Choose a CSV file first.","error");});
+$("play").addEventListener("click",()=>{if(!dataNow||!dataNow.flights.length)return;if(timer){stopTimer();return;}if(stepNow>=dataNow.flights.length)stepNow=0;$("play").textContent="Ⅱ Pause";timer=setInterval(()=>{if(stepNow>=dataNow.flights.length){stopTimer();return;}advance();},850);});
+$("step").addEventListener("click",()=>{stopTimer();advance();});
+$("reset").addEventListener("click",()=>{stopTimer();stepNow=0;drawGraph(0);});
+$("exportButton").addEventListener("click",()=>{
+ if(!dataNow)return;const chosen=new Map(dataNow.flights.map(f=>[f.edge_index,f]));
+ const rows=[["u","v","price","path_mark","coupon_used","price_paid"]];
+ dataNow.edges.forEach(e=>{const f=chosen.get(e.index);rows.push([e.u,e.v,e.price,f?"x":"",f&&f.coupon?"x":"",f?f.discounted_price:""]);});
+ const csv=rows.map(row=>row.map(v=>{const s=String(v);return /[",\n]/.test(s)?`"${s.replaceAll('"','""')}"`:s;}).join(",")).join("\n");
+ const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="flights_path.csv";a.click();URL.revokeObjectURL(a.href);
+});
+$("edgeInput").addEventListener("input",()=>{try{$("m").value=readEdges().length;}catch{$("m").value="—";}});
+$("m").value=readEdges().length;
+
+</script></body></html>
